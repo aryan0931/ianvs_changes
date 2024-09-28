@@ -176,17 +176,3 @@ def get_metric_func(metric_dict: dict):
     return name, metric_func_map.get(name, getattr(sys.modules[__name__], str.lower(name) + "_func"))
 ```
 
-## Documentation
-
-For more details on how to install, configure, and run the MLLM benchmarks, please refer to the [Ianvs documentation](https://ianvs.readthedocs.io/).
-
-## Contributing
-
-If you're interested in contributing to this project, please see [CONTRIBUTING](CONTRIBUTING.md) for details on submitting patches and the contribution workflow.
-
-## License
-
-Ianvs is under the Apache 2.0 license. See the [LICENSE](LICENSE) file for details.
-``` 
-
-You can use this markdown file as a `README.md` for your Ianvs MLLM benchmarking project. Let me know if you need any further adjustments!
