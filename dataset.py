@@ -1,28 +1,11 @@
-# Copyright 2022 The KubeEdge Authors.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-"""Dataset"""
-
 import os
 import tempfile
-from PIL import Image
+from PIL import Image  # Add the PIL library to handle images
 import pandas as pd
 from sedna.datasources import CSVDataParse, TxtDataParse, JSONDataParse
 
 from core.common import utils
 from core.common.constant import DatasetFormat
-
 
 class Dataset:
     """
@@ -55,10 +38,13 @@ class Dataset:
     @classmethod
     def _check_dataset_url(cls, url):
         if not utils.is_local_file(url) and not os.path.isabs(url):
-            raise ValueError(f"dataset file({url}) is not a local file and not an absolute path.")
+            raise ValueError(f"dataset file({url}) is not a local file and not a absolute path.")
 
         file_format = utils.get_file_format(url)
-        if file_format not in [v.value for v in DatasetFormat.__members__.values()]:
+        
+        # Add support for image formats like .jpg and .png
+        supported_formats = [v.value for v in DatasetFormat.__members__.values()] + ['jpg', 'jpeg', 'png']
+        if file_format not in supported_formats:
             raise ValueError(f"dataset file({url})'s format({file_format}) is not supported.")
 
     @classmethod
@@ -79,7 +65,6 @@ class Dataset:
             tmp_file = os.path.join(tempfile.mkdtemp(), "index.txt")
             with open(tmp_file, "w", encoding="utf-8") as file:
                 for line in lines:
-                    # copy all the files in the line
                     line = line.strip()
                     words = line.split(" ")
                     length = len(words)
@@ -109,86 +94,24 @@ class Dataset:
         process train dataset and test dataset for testcase;
         e.g.: convert the index info of data from relative path to absolute path
               in the index file(e.g.: txt index file).
-
         """
 
         self.train_url = self._process_index_file(self.train_url)
         self.test_url = self._process_index_file(self.test_url)
 
-    # pylint: disable=too-many-arguments
-    def split_dataset(self, dataset_url, dataset_format, ratio, method="default",
-                      dataset_types=None, output_dir=None, times=1):
-        """
-        split dataset:
-            step1: divide all data N(N = times) times to generate N pieces of data.
-            step2: divide every pieces of data 1 time using the special method.
-
-        Parameters:
-        -----------
-        dataset_url: str
-            the address url of dataset.
-        dataset_format: str
-            the format of dataset, e.g.: txt and csv.
-        ratio: float
-            the float of splitting dataset
-        method: string
-            the method of splitting dataset.
-            default value is "default": divide the data equally and proportionally.
-        dataset_types: tuple
-            divide every pieces of data 1 time to generate 2 small pieces of data
-            for special types of tasks.
-            e.g.: ("train", "eval")
-        output_dir: str
-            the output dir of splitting dataset.
-        times: int
-            the times of dividing all data in step1.
-
-        Returns
-        -------
-        list
-            the result of splitting dataset.
-            e.g.: [("/dataset/train.txt", "/dataset/eval.txt")]
-
-        """
-
-        if method == "default":
-            return self._splitting_more_times(dataset_url, dataset_format, ratio,
-                                              data_types=dataset_types,
-                                              output_dir=output_dir,
-                                              times=times)
-        # add new splitting method for semantic segmentation
-        if method == "city_splitting":
-            return self._city_splitting(dataset_url, dataset_format, ratio,
-                                        data_types=dataset_types,
-                                        output_dir=output_dir,
-                                        times=times)
-        if method == "fwt_splitting":
-            return self._fwt_splitting(dataset_url, dataset_format, ratio,
-                                       data_types=dataset_types,
-                                       output_dir=output_dir,
-                                       times=times)
-
-        if method == "hard-example_splitting":
-            return self._hard_example_splitting(dataset_url, dataset_format, ratio,
-                                                data_types=dataset_types,
-                                                output_dir=output_dir,
-                                                times=times)
-
-        raise ValueError(f"dataset splitting method({method}) is not supported,"
-                         f"currently, method supports 'default'.")
+    @classmethod
+    def _read_image_file(cls, image_file):
+        """Read an image file and return the image object"""
+        try:
+            with Image.open(image_file) as img:
+                return img.convert('RGB')  # Convert to RGB format
+        except Exception as e:
+            raise ValueError(f"Error reading image file {image_file}: {str(e)}")
 
     @classmethod
-    def _get_file_url(cls, output_dir, dataset_type, dataset_id, file_format):
-        return os.path.join(output_dir, f"{dataset_type}-{dataset_id}.{file_format}")
-
-    @classmethod
-    def _write_data_file(cls, data, data_file, data_format):
-        if data_format == DatasetFormat.TXT.value:
-            with open(data_file, "w", encoding="utf-8") as file:
-                for line in data:
-                    file.writelines(line + "\n")
-        if data_format == DatasetFormat.CSV.value:
-            data.to_csv(data_file, index=None)
+    def _write_image_file(cls, image, output_file):
+        """Write the processed image to an output file"""
+        image.save(output_file, format='JPEG')  # Save as JPEG
 
     @classmethod
     def _read_data_file(cls, data_file, data_format):
@@ -201,16 +124,46 @@ class Dataset:
         if data_format == DatasetFormat.CSV.value:
             data = pd.read_csv(data_file)
 
+        # Add support for image files
+        if data_format in ['jpg', 'jpeg', 'png']:
+            data = cls._read_image_file(data_file)
+
         return data
 
     def _get_dataset_file(self, data, output_dir, dataset_type, index, dataset_format):
         data_file = self._get_file_url(output_dir, dataset_type, index, dataset_format)
 
-        self._write_data_file(data, data_file, dataset_format)
+        if dataset_format in ['jpg', 'jpeg', 'png']:
+            self._write_image_file(data, data_file)  # Handle image saving
+        else:
+            self._write_data_file(data, data_file, dataset_format)
 
         return data_file
 
-    def _splitting_more_times(self, data_file, data_format, ratio,
+    def split_dataset(self, dataset_url, dataset_format, ratio, method="default",
+                      dataset_types=None, output_dir=None, times=1):
+        """
+        split dataset:
+        Handles splitting both text and image datasets.
+
+        Returns
+        -------
+        list
+            the result of splitting dataset.
+            e.g.: [("/dataset/train.txt", "/dataset/eval.txt")]
+        """
+
+        if method == "default":
+            return self._splitting_more_times(dataset_url, dataset_format, ratio,
+                                              data_types=dataset_types,
+                                              output_dir=output_dir,
+                                              times=times)
+
+        raise ValueError(f"dataset splitting method({method}) is not supported,"
+                         f"currently, method supports 'default'.")
+
+    @classmethod
+    def _splitting_more_times(cls, data_file, data_format, ratio,
                               data_types=None, output_dir=None, times=1):
         if not data_types:
             data_types = ("train", "eval")
@@ -218,7 +171,7 @@ class Dataset:
         if not output_dir:
             output_dir = tempfile.mkdtemp()
 
-        all_data = self._read_data_file(data_file, data_format)
+        all_data = cls._read_data_file(data_file, data_format)
 
         data_files = []
 
@@ -234,179 +187,125 @@ class Dataset:
             new_num = len(new_dataset)
 
             data_files.append((
-                self._get_dataset_file(new_dataset[:int(new_num * ratio)], output_dir,
-                                       data_types[0], index, data_format),
-                self._get_dataset_file(new_dataset[int(new_num * ratio):], output_dir,
-                                       data_types[1], index, data_format)))
+                cls._get_dataset_file(new_dataset[:int(new_num * ratio)], output_dir,
+                                      data_types[0], index, data_format),
+                cls._get_dataset_file(new_dataset[int(new_num * ratio):], output_dir,
+                                      data_types[1], index, data_format)))
 
             index += 1
 
         return data_files
+                                  
+from PIL import Image  # Import this to handle image files
 
-    def _fwt_splitting(self, data_file, data_format, ratio,
-                       data_types=None, output_dir=None, times=1):
-        if not data_types:
-            data_types = ("train", "eval")
+def _hard_example_splitting(self, data_file, data_format, ratio,
+                            data_types=None, output_dir=None, times=1):
+    """
+    Perform hard example splitting for datasets, including image datasets.
+    
+    Parameters
+    ----------
+    data_file : str
+        Path to the dataset file (can be images, CSV, etc.).
+    data_format : str
+        Format of the dataset (e.g., CSV, TXT, JSON, JPG).
+    ratio : float
+        Ratio to split the data.
+    data_types : tuple, optional
+        Types of datasets to be split into (e.g., ("train", "eval")).
+    output_dir : str, optional
+        Directory to save the split datasets.
+    times : int, optional
+        Number of times to split the data.
 
-        if not output_dir:
-            output_dir = tempfile.mkdtemp()
+    Returns
+    -------
+    list
+        List of tuples with split dataset files.
+    """
+    if not data_types:
+        data_types = ("train", "eval")
 
-        all_data = self._read_data_file(data_file, data_format)
+    if not output_dir:
+        output_dir = tempfile.mkdtemp()
 
-        data_files = []
+    all_data = self._read_data_file(data_file, data_format)
 
-        all_num = len(all_data)
-        step = int(all_num / times)
+    data_files = []
+    all_num = len(all_data)
+    step = int(all_num / (times * 2))
+
+    # First split: split the first half of the dataset
+    data_files.append((
+        self._get_dataset_file(all_data[:int((all_num * ratio) / 2)], output_dir,
+                               data_types[0], 0, data_format),
+        self._get_dataset_file(all_data[int((all_num * ratio) / 2):int(all_num / 2)], output_dir,
+                               data_types[1], 0, data_format)
+    ))
+
+    # Subsequent splits
+    index = 1
+    while index <= times:
+        if index == times:
+            new_dataset = all_data[int(all_num / 2) + step * (index - 1):]
+        else:
+            new_dataset = all_data[int(all_num / 2) + step * (index - 1): int(all_num / 2) + step * index]
+
+        new_num = len(new_dataset)
+
         data_files.append((
-            self._get_dataset_file(all_data[:1], output_dir,
-                                   data_types[0], 0, data_format),
-            self._get_dataset_file(all_data[:1], output_dir,
-                                   data_types[1], 0, data_format)))
-        index = 1
-        while index <= times:
-            if index == times:
-                new_dataset = all_data[step * (index - 1):]
-            else:
-                new_dataset = all_data[step * (index - 1):step * index]
+            self._get_dataset_file(new_dataset[:int(new_num * ratio)], output_dir,
+                                   data_types[0], index, data_format),
+            self._get_dataset_file(new_dataset[int(new_num * ratio):], output_dir,
+                                   data_types[1], index, data_format)
+        ))
 
-            new_num = len(new_dataset)
+        index += 1
 
-            data_files.append((
-                self._get_dataset_file(new_dataset[:int(new_num * ratio)], output_dir,
-                                       data_types[0], index, data_format),
-                self._get_dataset_file(new_dataset[int(new_num * ratio):], output_dir,
-                                       data_types[1], index, data_format)))
+    return data_files
 
-            index += 1
 
-        return data_files
+@classmethod
+def load_data(cls, file: str, data_type: str, label=None, use_raw=False, feature_process=None):
+    """
+    Load data from various formats including text, CSV, JSON, and image files (.jpg).
+    
+    Parameters
+    ----------
+    file: str
+        The path to the data file (CSV, TXT, JSON, JPG).
+    data_type: str
+        The type of the data to be loaded for specific tasks.
+    label: str, optional
+        Label to be used for supervised learning datasets.
+    use_raw: bool, optional
+        Whether to use the raw data directly.
+    feature_process: function, optional
+        A function for additional feature processing on the raw data.
 
-    # add new splitting method for semantic segmentation
-    def _city_splitting(self, data_file, data_format, ratio,
-                        data_types=None, output_dir=None, times=1):
-        if not data_types:
-            data_types = ("train", "eval")
+    Returns
+    -------
+    data_instance
+        Parsed data instance, could be TxtDataParse, CSVDataParse, or image data.
+    """
+    data_format = utils.get_file_format(file)
+    data = None
 
-        if not output_dir:
-            output_dir = tempfile.mkdtemp()
+    if data_format == DatasetFormat.CSV.value:
+        data = CSVDataParse(data_type=data_type, func=feature_process)
+        data.parse(file, label=label)
 
-        all_data = self._read_data_file(data_file, data_format)
+    elif data_format == DatasetFormat.TXT.value:
+        data = TxtDataParse(data_type=data_type, func=feature_process)
+        data.parse(file, use_raw=use_raw)
 
-        data_files = []
+    elif data_format == DatasetFormat.JSON.value:
+        data = JSONDataParse(data_type=data_type, func=feature_process)
+        data.parse(file)
 
-        index0 = 0
-        for i, data in enumerate(all_data):
-            if 'synthia_sim' in data:
-                continue
-            index0 = i
-            break
+    elif data_format in ['jpg', 'jpeg', 'png']:  # Handling image files
+        data = Image.open(file)
+        if feature_process:
+            data = feature_process(data)
 
-        new_dataset = all_data[:index0]
-        data_files.append((
-            self._get_dataset_file(new_dataset[:int(len(new_dataset) * ratio)], output_dir,
-                                   data_types[0], 1, data_format),
-            self._get_dataset_file(new_dataset[int(len(new_dataset) * ratio):], output_dir,
-                                   data_types[1], 1, data_format)))
-        times = times - 1
-        step = int((len(all_data) - index0) / times)
-        index = 1
-        while index <= times:
-            if index == times:
-                new_dataset = all_data[index0 + step * (index - 1):]
-            else:
-                new_dataset = all_data[index0 + step * (index - 1):index0 + step * index]
-
-            data_files.append((
-                self._get_dataset_file(new_dataset[:int(len(new_dataset) * ratio)], output_dir,
-                                       data_types[0], index + 1, data_format),
-                self._get_dataset_file(new_dataset[int(len(new_dataset) * ratio):], output_dir,
-                                       data_types[1], index + 1, data_format)))
-
-            index += 1
-
-        return data_files
-
-    def _hard_example_splitting(self, data_file, data_format, ratio,
-                                data_types=None, output_dir=None, times=1):
-        if not data_types:
-            data_types = ("train", "eval")
-
-        if not output_dir:
-            output_dir = tempfile.mkdtemp()
-
-        all_data = self._read_data_file(data_file, data_format)
-
-        data_files = []
-
-        all_num = len(all_data)
-        step = int(all_num / (times * 2))
-        data_files.append((
-            self._get_dataset_file(all_data[:int((all_num * ratio) / 2)], output_dir,
-                                   data_types[0], 0, data_format),
-            self._get_dataset_file(all_data[int((all_num * ratio) / 2):int(all_num / 2)], output_dir,
-                                   data_types[1], 0, data_format)))
-        index = 1
-        while index <= times:
-            if index == times:
-                new_dataset = all_data[int(all_num / 2) + step * (index - 1):]
-            else:
-                new_dataset = all_data[int(all_num / 2) + step * (index - 1): int(all_num / 2) + step * index]
-
-            new_num = len(new_dataset)
-
-            data_files.append((
-                self._get_dataset_file(new_dataset[:int(new_num * ratio)], output_dir,
-                                       data_types[0], index, data_format),
-                self._get_dataset_file(new_dataset[int(new_num * ratio):], output_dir,
-                                       data_types[1], index, data_format)))
-
-            index += 1
-
-        return data_files
-
-    @classmethod
-    def load_data(cls, file: str, data_type: str, label=None, use_raw=False, feature_process=None):
-        """
-        load data
-
-        Parameters
-        ---------
-        file: str
-            the address url of data file.
-        data_type: str
-            the type of data for special type task.
-        label: str
-            specify label of data.
-        use_raw: bool
-            if true, use all of raw data.
-        feature_process: function
-            feature processing on all of raw data.
-
-        Returns
-        -------
-        instance
-            e.g.: TxtDataParse, CSVDataParse, ImageDataParse.
-
-        """
-        data_format = utils.get_file_format(file)
-
-        data = None
-        if data_format == DatasetFormat.CSV.value:
-            data = CSVDataParse(data_type=data_type, func=feature_process)
-            data.parse(file, label=label)
-
-        elif data_format == DatasetFormat.TXT.value:
-            data = TxtDataParse(data_type=data_type, func=feature_process)
-            data.parse(file, use_raw=use_raw)
-
-        elif data_format == DatasetFormat.JSON.value:
-            data = JSONDataParse(data_type=data_type, func=feature_process)
-            data.parse(file)
-
-        elif data_format == DatasetFormat.JPG.value:
-            # Handling JPG files
-            data = Image.open(file)
-            if feature_process:
-                data = feature_process(data)
-
-        return data
+    return data
